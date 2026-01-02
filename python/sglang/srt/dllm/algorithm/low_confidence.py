@@ -10,6 +10,8 @@ from sglang.srt.layers.logits_processor import LogitsProcessorOutput
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.model_executor.model_runner import ModelRunner
 
+from sglang.srt.dllm.algorithm.utils import AverageMeter
+
 
 class LowConfidence(DllmAlgorithm):
 
@@ -19,6 +21,9 @@ class LowConfidence(DllmAlgorithm):
     ):
         super().__init__(config)
         self.threshold = config.algorithm_config.get("threshold", 0.95)
+        # Track unmasked token counts for each forward pass
+        self.transfer_token_counts = AverageMeter()
+        self.num_forward_passes = 0
 
     def run(
         self,
@@ -27,6 +32,7 @@ class LowConfidence(DllmAlgorithm):
     ) -> Tuple[
         Union[LogitsProcessorOutput, torch.Tensor], Optional[torch.Tensor], bool
     ]:
+        
         mask_index = forward_batch.input_ids == self.mask_id
         start = len(forward_batch.input_ids) - torch.sum(mask_index).item()
 
@@ -36,6 +42,7 @@ class LowConfidence(DllmAlgorithm):
                 break
 
             out = model_runner.forward(forward_batch, pp_proxy_tensors=None)
+            self.num_forward_passes += 1
             logits_output, can_run_cuda_graph = out.logits_output, out.can_run_graph
 
             x = torch.argmax(logits_output.full_logits, dim=-1)
@@ -56,8 +63,11 @@ class LowConfidence(DllmAlgorithm):
                 transfer_index[select_index] = True
 
             forward_batch.input_ids[transfer_index] = x[transfer_index]
+            self.transfer_token_counts.update(transfer_index.sum().item())
 
+        
         out = model_runner.forward(forward_batch, pp_proxy_tensors=None)
+        self.num_forward_passes += 1
         logits_output, can_run_cuda_graph = out.logits_output, out.can_run_graph
 
         next_token_ids = forward_batch.input_ids[start:]
