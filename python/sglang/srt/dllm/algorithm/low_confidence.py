@@ -10,6 +10,8 @@ from sglang.srt.layers.logits_processor import LogitsProcessorOutput
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.model_executor.model_runner import ModelRunner
 
+from sglang.srt.dllm.algorithm.utils import AverageMeter
+
 
 class LowConfidence(DllmAlgorithm):
 
@@ -19,6 +21,9 @@ class LowConfidence(DllmAlgorithm):
     ):
         super().__init__(config)
         self.threshold = config.algorithm_config.get("threshold", 0.95)
+        # Track unmasked token counts for each forward pass
+        self.transfer_token_counts = AverageMeter()
+        self.num_forward_passes = 0
 
     def run(
         self,
@@ -54,6 +59,7 @@ class LowConfidence(DllmAlgorithm):
                 break
 
             out = model_runner.forward(forward_batch, pp_proxy_tensors=None)
+            self.num_forward_passes += 1
             logits_output, can_run_cuda_graph = out.logits_output, out.can_run_graph
             assert batch_size == forward_batch.input_ids.shape[0] // self.block_size
             for batch_id in range(batch_size):
@@ -89,7 +95,9 @@ class LowConfidence(DllmAlgorithm):
 
                 block_input_ids[transfer_index] = x[transfer_index]
 
+        
         out = model_runner.forward(forward_batch, pp_proxy_tensors=None)
+        self.num_forward_passes += 1
         logits_output, can_run_cuda_graph = out.logits_output, out.can_run_graph
         # Here next token ids is tricky to implement the dynamic lengths,
         # so we return a list of tensors

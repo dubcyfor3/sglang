@@ -2608,6 +2608,17 @@ class Scheduler(
                 self.spec_total_num_accepted_tokens / self.spec_total_num_forward_ct
             )
 
+        # Add DLLM algorithm stats if available
+        if self.tp_worker.dllm_algorithm is not None:
+            if hasattr(self.tp_worker.dllm_algorithm, "transfer_token_counts"):
+                ret["dllm_transfer_token_counts"] = {
+                    "avg": self.tp_worker.dllm_algorithm.transfer_token_counts.avg,
+                    "sum": self.tp_worker.dllm_algorithm.transfer_token_counts.sum,
+                    "count": self.tp_worker.dllm_algorithm.transfer_token_counts.count,
+                    "val": self.tp_worker.dllm_algorithm.transfer_token_counts.val,
+                }
+                ret["dllm_num_forward_passes"] = self.tp_worker.dllm_algorithm.num_forward_passes
+
         if RECORD_STEP_TIME:
             ret["step_time_dict"] = self.step_time_dict
 
