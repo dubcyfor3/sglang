@@ -77,11 +77,13 @@ def test_gsm8k(args):
         dllm_algorithm=args.dllm_algorithm,
         dllm_algorithm_config=args.dllm_algorithm_config,
         max_running_requests=getattr(args, 'max_running_requests', 1),
+        mem_fraction_static=getattr(args, 'mem_fraction_static', None),
         trust_remote_code=True,
         log_level="error",  # Reduce verbosity for testing
     )
     
     # Prepare sampling parameters
+    # For accuracy tests: use EOS and stop strings for natural stopping behavior
     # Use per-request output lengths if available, otherwise use default
     if output_lens and len(output_lens) == len(prompts) and all(olen is not None for olen in output_lens):
         sampling_params_list = []
@@ -89,18 +91,22 @@ def test_gsm8k(args):
             params = {
                 "temperature": getattr(args, 'temperature', 0),
                 "max_new_tokens": min(output_len + 50, getattr(args, 'max_new_tokens', 512)),  # Add buffer
+                "ignore_eos": False,  # Use EOS tokens for natural stopping (accuracy test)
             }
-            params["stop"] = ["Question", "Assistant:", "<|separator|>"]
+            params["stop"] = ["Question", "Assistant:", "<|separator|>"]  # Stop strings for accuracy
             sampling_params_list.append(params)
         sampling_params = sampling_params_list
         print(f"Using per-request output lengths (dataset-specific)")
+        print(f"Accuracy test mode: ignore_eos=False, stop strings enabled")
     else:
         sampling_params = {
             "temperature": getattr(args, 'temperature', 0),
             "max_new_tokens": getattr(args, 'max_new_tokens', 512),
-            "stop": ["Question", "Assistant:", "<|separator|>"],
+            "ignore_eos": False,  # Use EOS tokens for natural stopping (accuracy test)
+            "stop": ["Question", "Assistant:", "<|separator|>"],  # Stop strings for accuracy
         }
         print(f"Using default max_new_tokens: {sampling_params['max_new_tokens']}")
+        print(f"Accuracy test mode: ignore_eos=False, stop strings enabled")
     
     # Run inference
     print(f"Running inference on {len(prompts)} prompts...")
@@ -210,10 +216,12 @@ def main(args):
         dllm_algorithm=args.dllm_algorithm,
         dllm_algorithm_config=args.dllm_algorithm_config,
         max_running_requests=args.max_running_requests,
+        mem_fraction_static=getattr(args, 'mem_fraction_static', None),
         trust_remote_code=True
     )
 
     # Prepare sampling parameters
+    # For performance benchmarks: ignore EOS and stop strings to get consistent token counts
     # Use dataset-specific output lengths if available, otherwise use default
     if output_lens and len(output_lens) == len(prompts) and all(olen is not None for olen in output_lens):
         # Create per-request sampling parameters with dataset-specific output lengths
@@ -222,21 +230,24 @@ def main(args):
             params = {
                 "temperature": getattr(args, 'temperature', 0),
                 "max_new_tokens": output_len,
+                "ignore_eos": True,  # Ignore EOS for consistent benchmark measurements
             }
-            if args.dataset == "gsm8k":
-                params["stop"] = ["Question", "Assistant:", "<|separator|>"]
+            # Don't add stop strings for benchmarks - we want exact token counts
+            # Stop strings are only used in accuracy tests (test_gsm8k)
             sampling_params_list.append(params)
         sampling_params = sampling_params_list
         print(f"Using per-request output lengths (dataset-specific)")
+        print(f"Benchmark mode: ignore_eos=True, no stop strings")
     else:
         # Fallback to single sampling params for all requests
         sampling_params = {
             "temperature": getattr(args, 'temperature', 0),
             "max_new_tokens": getattr(args, 'max_new_tokens', 1024),
+            "ignore_eos": True,  # Ignore EOS for consistent benchmark measurements
         }
-        if args.dataset == "gsm8k":
-            sampling_params["stop"] = ["Question", "Assistant:", "<|separator|>"]
+        # Don't add stop strings for benchmarks
         print(f"Using default max_new_tokens: {sampling_params['max_new_tokens']}")
+        print(f"Benchmark mode: ignore_eos=True, no stop strings")
 
     # Run inference
     print(f"Running inference on {len(prompts)} prompts...")
@@ -300,6 +311,8 @@ if __name__ == '__main__':
     parser.add_argument("--block_size", type=int, default=32)
     parser.add_argument("--confidence_threshold", type=float, default=0.90)
     parser.add_argument("--max_running_requests", type=int, default=16)
+    parser.add_argument("--mem_fraction_static", type=float, default=None,
+                       help="Fraction of GPU memory for static allocation (model weights + KV cache). Default is auto-calculated (~0.9). Use smaller values (e.g., 0.7, 0.8) to reduce GPU utilization.")
     
     # Dataset arguments
     parser.add_argument("--dataset", type=str, default="sharegpt", 

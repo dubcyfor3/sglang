@@ -134,6 +134,7 @@ def load_humaneval_dataset(args, num_samples: int, tokenizer: Optional[PreTraine
     if num_samples:
         # Use seeded random to ensure deterministic sampling
         rng = random.Random(RANDOM_SEED)
+        print(f"Sampling {num_samples} problems from {len(problems_list)} problems")
         problems_list = rng.sample(problems_list, min(num_samples, len(problems_list)))
         # Sort again after sampling to ensure consistent order
         problems_list = sorted(problems_list, key=lambda x: x.get("task_id", ""))
