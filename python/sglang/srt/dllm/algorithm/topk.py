@@ -14,14 +14,14 @@ from sglang.srt.model_executor.model_runner import ModelRunner
 from sglang.srt.dllm.algorithm.utils import AverageMeter
 
 
-class LowConfidence(DllmAlgorithm):
+class TopK(DllmAlgorithm):
 
     def __init__(
         self,
         config: DllmConfig,
     ):
         super().__init__(config)
-        self.threshold = config.algorithm_config.get("threshold", 0.95)
+        self.k = config.algorithm_config.get("k", 1)
         # Track unmasked token counts for each forward pass
         self.transfer_token_counts = AverageMeter()
         self.forward_time = AverageMeter()
@@ -120,11 +120,16 @@ class LowConfidence(DllmAlgorithm):
                 x = torch.where(block_mask_index, x, block_input_ids)
                 confidence = torch.where(block_mask_index, p, -np.inf)
 
-                transfer_index = confidence > self.threshold
-
-                if transfer_index.sum().item() == 0:
-                    _, select_index = torch.topk(confidence, k=1)
-                    transfer_index[select_index] = True
+                # TopK: statically unmask k tokens with highest confidence
+                num_masked = block_mask_index.sum().item()
+                k = min(self.k, num_masked)  # Don't select more than available masked tokens
+                
+                if k > 0:
+                    _, select_indices = torch.topk(confidence, k=k)
+                    transfer_index = torch.zeros_like(block_mask_index, dtype=torch.bool)
+                    transfer_index[select_indices] = True
+                else:
+                    transfer_index = torch.zeros_like(block_mask_index, dtype=torch.bool)
 
                 num_transfer_tokens = transfer_index.sum().item()
                 self.transfer_token_counts.update(num_transfer_tokens)
@@ -133,7 +138,6 @@ class LowConfidence(DllmAlgorithm):
                 selected_positions = torch.where(transfer_index)[0].cpu().tolist()
                 selected_token_ids = x[transfer_index].cpu().tolist()
                 confidence_values = confidence[transfer_index].cpu().tolist()
-                num_masked = block_mask_index.sum().item()
                 
                 self.trace_recorder.record_step(
                     iteration=iteration,
@@ -185,4 +189,4 @@ class LowConfidence(DllmAlgorithm):
         return logits_output, next_token_ids_list, can_run_cuda_graph
 
 
-Algorithm = LowConfidence
+Algorithm = TopK

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 from sglang.srt.configs.model_config import ModelConfig
 from sglang.srt.server_args import ServerArgs
@@ -12,12 +12,16 @@ class DllmConfig:
         block_size: int,
         mask_id: int,
         max_running_requests: int,
+        enable_dllm_trace: bool = False,
+        dllm_trace_output_dir: Optional[str] = None,
     ):
         self.algorithm = algorithm
         self.algorithm_config = algorithm_config
         self.block_size = block_size
         self.mask_id = mask_id
         self.max_running_requests = max_running_requests
+        self.enable_dllm_trace = enable_dllm_trace
+        self.dllm_trace_output_dir = dllm_trace_output_dir
 
     @staticmethod
     def from_server_args(
@@ -61,10 +65,22 @@ class DllmConfig:
             # Parse common algorithm configurations
             block_size = algorithm_config.get("block_size", block_size)
 
+        # Parse trace configuration
+        enable_dllm_trace = algorithm_config.get("enable_dllm_trace", False)
+        dllm_trace_output_dir = algorithm_config.get("dllm_trace_output_dir", None)
+        
+        # Allow override from server_args if provided
+        if hasattr(server_args, 'enable_dllm_trace') and server_args.enable_dllm_trace:
+            enable_dllm_trace = server_args.enable_dllm_trace
+        if hasattr(server_args, 'dllm_trace_output_dir') and server_args.dllm_trace_output_dir:
+            dllm_trace_output_dir = server_args.dllm_trace_output_dir
+
         return DllmConfig(
             algorithm=server_args.dllm_algorithm,
             algorithm_config=algorithm_config,
             block_size=block_size,
             mask_id=mask_id,
             max_running_requests=max_running_requests,
+            enable_dllm_trace=enable_dllm_trace,
+            dllm_trace_output_dir=dllm_trace_output_dir,
         )

@@ -19,6 +19,7 @@
 # limitations under the License.
 """SGLang LLaDA2MoeModelLM model."""
 import logging
+import time
 from typing import Iterable, Optional, Tuple, Union
 
 import torch
@@ -35,6 +36,7 @@ from sglang.srt.distributed import (
 from sglang.srt.eplb.expert_distribution import get_global_expert_distribution_recorder
 from sglang.srt.eplb.expert_location import ModelConfigForExpertLocation
 from sglang.srt.eplb.expert_location_dispatch import ExpertLocationDispatchInfo
+from sglang.srt.models.layer_timing import get_global_layer_timing_recorder
 from sglang.srt.layers.activation import SiluAndMul
 from sglang.srt.layers.communicator import (
     LayerCommunicator,
@@ -130,11 +132,24 @@ class LLaDA2MoeMLP(nn.Module):
         if (self.tp_size == 1) and hidden_states.shape[0] == 0:
             return hidden_states
 
+        timing_recorder = get_global_layer_timing_recorder()
+        if timing_recorder.enabled:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            start_time = time.perf_counter()
+
         gate_up, _ = self.gate_up_proj(hidden_states)
         hidden_states = self.act_fn(gate_up)
         hidden_states, _ = self.down_proj(
             hidden_states, skip_all_reduce=use_reduce_scatter
         )
+        
+        if timing_recorder.enabled:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            timing_recorder.record_timing("mlp", elapsed_ms)
+        
         return hidden_states
 
 
@@ -317,16 +332,47 @@ class LLaDA2MoeSparseMoeBlock(nn.Module):
         ]
 
     def _forward_shared_experts(self, hidden_states: torch.Tensor):
+        timing_recorder = get_global_layer_timing_recorder()
         shared_output = None
         if self.num_shared_experts > 0:
+            # Shared experts use the same MLP structure, so timing is handled in LLaDA2MoeMLP
             shared_output = self.shared_experts(hidden_states)
         return shared_output
 
     def _forward_router_experts(self, hidden_states: torch.Tensor):
+        timing_recorder = get_global_layer_timing_recorder()
+        
+        # Time router (gate)
+        if timing_recorder.enabled:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            router_start = time.perf_counter()
+        
         # router_logits: (num_tokens, n_experts)
         router_logits = self.gate(hidden_states)
         topk_output = self.topk(hidden_states, router_logits)
-        return self.experts(hidden_states, topk_output)
+        
+        if timing_recorder.enabled:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            router_elapsed_ms = (time.perf_counter() - router_start) * 1000.0
+            timing_recorder.record_timing("router", router_elapsed_ms)
+        
+        # Time experts computation
+        if timing_recorder.enabled:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            experts_start = time.perf_counter()
+        
+        expert_output = self.experts(hidden_states, topk_output)
+        
+        if timing_recorder.enabled:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            experts_elapsed_ms = (time.perf_counter() - experts_start) * 1000.0
+            timing_recorder.record_timing("experts", experts_elapsed_ms)
+        
+        return expert_output
 
     def forward_normal_dual_stream(
         self,
@@ -347,6 +393,7 @@ class LLaDA2MoeSparseMoeBlock(nn.Module):
         hidden_states: torch.Tensor,
         use_reduce_scatter: bool = False,
     ) -> torch.Tensor:
+        timing_recorder = get_global_layer_timing_recorder()
         num_tokens, hidden_size = hidden_states.shape
         hidden_states = hidden_states.view(-1, hidden_size)
 
@@ -359,6 +406,7 @@ class LLaDA2MoeSparseMoeBlock(nn.Module):
                 hidden_states
             )
         else:
+            # Router and experts timing is now handled inside _forward_router_experts()
             shared_output = self._forward_shared_experts(hidden_states)
             final_hidden_states = self._forward_router_experts(hidden_states)
 
@@ -501,7 +549,23 @@ class LLaDA2MoeAttention(nn.Module):
     ) -> torch.Tensor:
         if hidden_states.shape[0] == 0:
             return hidden_states
+        
+        timing_recorder = get_global_layer_timing_recorder()
+        
+        # Time QKV projection
+        if timing_recorder.enabled:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            qkv_start = time.perf_counter()
+        
         qkv, _ = self.query_key_value(hidden_states)
+        
+        if timing_recorder.enabled:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            qkv_elapsed_ms = (time.perf_counter() - qkv_start) * 1000.0
+            timing_recorder.record_timing("qkv", qkv_elapsed_ms)
+        
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
         if self.use_qk_norm:
             q, k = apply_qk_norm(
@@ -526,6 +590,13 @@ class LLaDA2MoeAttention(nn.Module):
                 else None
             ),
         )
+        
+        # Time attention computation
+        if timing_recorder.enabled:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            attn_start = time.perf_counter()
+        
         context_layer = self.attn(
             q,
             k,
@@ -533,7 +604,27 @@ class LLaDA2MoeAttention(nn.Module):
             forward_batch,
             save_kv_cache=not enable_fused_set_kv_buffer(forward_batch),
         )
+        
+        if timing_recorder.enabled:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            attn_elapsed_ms = (time.perf_counter() - attn_start) * 1000.0
+            timing_recorder.record_timing("attention", attn_elapsed_ms)
+        
+        # Time dense projection
+        if timing_recorder.enabled:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            dense_start = time.perf_counter()
+        
         attn_output, _ = self.dense(context_layer)
+        
+        if timing_recorder.enabled:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            dense_elapsed_ms = (time.perf_counter() - dense_start) * 1000.0
+            timing_recorder.record_timing("dense", dense_elapsed_ms)
+        
         return attn_output
 
 
@@ -620,12 +711,17 @@ class LLaDA2MoeBlock(nn.Module):
         forward_batch: ForwardBatch,
         residual: Optional[torch.Tensor],
     ) -> torch.Tensor:
+        timing_recorder = get_global_layer_timing_recorder()
+        timing_recorder.set_layer_id(self.layer_id)
+        
         hidden_states, residual = self.layer_communicator.prepare_attn(
             hidden_states=hidden_states,
             residual=residual,
             forward_batch=forward_batch,
         )
 
+        # Attention timing is now handled inside LLaDA2MoeAttention.forward()
+        # which records qkv, attention, and dense separately
         hidden_states = self.attention(
             positions=positions,
             hidden_states=hidden_states,
@@ -668,6 +764,12 @@ class LLaDA2MoeModel(nn.Module):
         self.config = config
         self.vocab_size = config.vocab_size
         self.embed_dim = config.hidden_size
+        
+        # Enable layer timing if requested via environment variable
+        import os
+        if os.getenv("SGLANG_ENABLE_LAYER_TIMING", "0") == "1":
+            timing_recorder = get_global_layer_timing_recorder()
+            timing_recorder.enable()
         if self.pp_group.is_first_rank:
             self.word_embeddings = VocabParallelEmbedding(
                 self.vocab_size,

@@ -2618,6 +2618,22 @@ class Scheduler(
                     "val": self.tp_worker.dllm_algorithm.transfer_token_counts.val,
                 }
                 ret["dllm_num_forward_passes"] = self.tp_worker.dllm_algorithm.num_forward_passes
+            if hasattr(self.tp_worker.dllm_algorithm, "forward_time"):
+                ret["dllm_forward_time"] = {
+                    "avg": self.tp_worker.dllm_algorithm.forward_time.avg,
+                    "sum": self.tp_worker.dllm_algorithm.forward_time.sum,
+                    "count": self.tp_worker.dllm_algorithm.forward_time.count,
+                    "val": self.tp_worker.dllm_algorithm.forward_time.val,
+                }
+        
+        # Add layer timing stats if available (aggregated by component type)
+        try:
+            from sglang.srt.models.layer_timing import get_global_layer_timing_recorder
+            timing_recorder = get_global_layer_timing_recorder()
+            if timing_recorder.enabled:
+                ret["layer_timing_stats"] = timing_recorder.get_aggregated_statistics()
+        except ImportError:
+            pass
 
         if RECORD_STEP_TIME:
             ret["step_time_dict"] = self.step_time_dict
