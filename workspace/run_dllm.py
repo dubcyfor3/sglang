@@ -39,6 +39,14 @@ def get_dllm_stats(llm):
         if "dllm_num_forward_passes" in state:
             result["num_forward_passes"] = state.get("dllm_num_forward_passes", 0)
         
+        if "dllm_forward_time" in state:
+            forward_time_stats = state["dllm_forward_time"]
+            result["forward_time"] = {
+                "avg": forward_time_stats.get('avg', 0),
+                "count": forward_time_stats.get('count', 0),
+                "sum": forward_time_stats.get('sum', 0),
+            }
+        
         return result if result else None
     return None
 
@@ -80,6 +88,8 @@ def test_gsm8k(args):
         mem_fraction_static=getattr(args, 'mem_fraction_static', None),
         trust_remote_code=True,
         log_level="error",  # Reduce verbosity for testing
+        attention_backend="flashinfer",
+        disable_cuda_graph=args.disable_cuda_graph,
     )
     
     # Prepare sampling parameters
@@ -164,6 +174,9 @@ def test_gsm8k(args):
             print(f"  Transfer token counts - avg: {transfer_stats['avg']:.2f}")
         if "num_forward_passes" in dllm_stats:
             print(f"  Number of forward passes: {dllm_stats['num_forward_passes']}")
+        if "forward_time" in dllm_stats:
+            forward_time_stats = dllm_stats["forward_time"]
+            print(f"  Forward time - avg: {forward_time_stats['avg']:.2f} ms")
     
     # Cleanup
     llm.shutdown()
@@ -217,7 +230,9 @@ def main(args):
         dllm_algorithm_config=args.dllm_algorithm_config,
         max_running_requests=args.max_running_requests,
         mem_fraction_static=getattr(args, 'mem_fraction_static', None),
-        trust_remote_code=True
+        trust_remote_code=True,
+        disable_cuda_graph=args.disable_cuda_graph,
+        attention_backend="flashinfer"
     )
 
     # Prepare sampling parameters
@@ -272,6 +287,9 @@ def main(args):
             print(f"  Transfer token counts - avg: {transfer_stats['avg']:.2f}")
         if "num_forward_passes" in dllm_stats:
             print(f"  Number of forward passes: {dllm_stats['num_forward_passes']}")
+        if "forward_time" in dllm_stats:
+            forward_time_stats = dllm_stats["forward_time"]
+            print(f"  Forward time - avg: {forward_time_stats['avg']:.2f} ms")
     else:
         print("\nDLLM stats not available")
     
@@ -310,9 +328,11 @@ if __name__ == '__main__':
     parser.add_argument("--dllm_algorithm_config", type=str, default="workspace/config.yaml")
     parser.add_argument("--block_size", type=int, default=32)
     parser.add_argument("--confidence_threshold", type=float, default=0.90)
-    parser.add_argument("--max_running_requests", type=int, default=16)
-    parser.add_argument("--mem_fraction_static", type=float, default=None,
+    parser.add_argument("--max_running_requests", type=int, default=1)
+    parser.add_argument("--mem_fraction_static", type=float, default=0.7,
                        help="Fraction of GPU memory for static allocation (model weights + KV cache). Default is auto-calculated (~0.9). Use smaller values (e.g., 0.7, 0.8) to reduce GPU utilization.")
+    parser.add_argument("--disable_cuda_graph", action="store_true", default=False,
+                       help="Disable CUDA graph for better performance")
     
     # Dataset arguments
     parser.add_argument("--dataset", type=str, default="sharegpt", 
