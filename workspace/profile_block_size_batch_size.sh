@@ -6,13 +6,13 @@
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="${SCRIPT_DIR}/benchmark_forward.py"
-OUTPUT_CSV="${SCRIPT_DIR}/block_size_batch_size_profile_new.csv"
+OUTPUT_CSV="${SCRIPT_DIR}/SDAR_block_size_batch_size_block_64.csv"
 LOG_DIR="${SCRIPT_DIR}/profile_logs"
 
 # Default values (can be overridden via environment variables)
-BLOCK_SIZES="${BLOCK_SIZES:-1 2 4}"
-BATCH_SIZES="${BATCH_SIZES:-1 2 4 8}"
-MODEL_PATH="${MODEL_PATH:-inclusionAI/LLaDA2.0-mini}"
+BLOCK_SIZES="${BLOCK_SIZES:-64}"
+BATCH_SIZES="${BATCH_SIZES:-1 2 4 8 16 32 64 128 256}" 
+MODEL_PATH="${MODEL_PATH:-JetLM/SDAR-8B-Chat-b32}"
 DLLM_ALGORITHM="${DLLM_ALGORITHM:-TopK}"
 DLLM_CONFIG="${DLLM_CONFIG:-workspace/config.yaml}"
 K="${K:-1}"

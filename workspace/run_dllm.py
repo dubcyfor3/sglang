@@ -329,13 +329,13 @@ if __name__ == '__main__':
     parser.add_argument("--block_size", type=int, default=32)
     parser.add_argument("--confidence_threshold", type=float, default=0.90)
     parser.add_argument("--max_running_requests", type=int, default=1)
-    parser.add_argument("--mem_fraction_static", type=float, default=0.7,
+    parser.add_argument("--mem_fraction_static", type=float, default=0.9,
                        help="Fraction of GPU memory for static allocation (model weights + KV cache). Default is auto-calculated (~0.9). Use smaller values (e.g., 0.7, 0.8) to reduce GPU utilization.")
     parser.add_argument("--disable_cuda_graph", action="store_true", default=False,
                        help="Disable CUDA graph for better performance")
     
     # Dataset arguments
-    parser.add_argument("--dataset", type=str, default="sharegpt", 
+    parser.add_argument("--dataset", type=str, default="gsm8k", 
                        choices=["sharegpt", "gsm8k", "humaneval"],
                        help="Dataset to evaluate on")
     parser.add_argument("--num_samples", type=int, default=100,

@@ -173,6 +173,9 @@ def benchmark_forward_pass(
         trust_remote_code=True,
         disable_cuda_graph=disable_cuda_graph,
         log_level="error",
+        mem_fraction_static=0.7,
+        attention_backend="flashinfer",
+        cuda_graph_max_bs=batch_size,
     )
     
     # Prepare sampling parameters
@@ -283,7 +286,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Benchmark DLLM forward pass time")
     
     # Model and DLLM arguments
-    parser.add_argument("--model_path", type=str, default="inclusionAI/LLaDA2.0-mini",
+    parser.add_argument("--model_path", type=str, default="inclusionAI/LLaDA2.0-mini", # or JetLM/SDAR-8B-Chat-b32
                        help="Path to the model")
     parser.add_argument("--dllm_algorithm", type=str, default="TopK",
                        help="DLLM algorithm name (TopK or LowConfidence)")

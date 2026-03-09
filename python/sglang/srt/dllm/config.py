@@ -36,9 +36,15 @@ class DllmConfig:
             model_revision=server_args.revision,
         )
 
-        if model_config.hf_config.architectures[0] == "LLaDA2MoeModelLM":
+        arch = model_config.hf_config.architectures[0]
+        if arch == "LLaDA2MoeModelLM":
             block_size = 32
             mask_id = 156895
+        elif arch == "SDARForCausalLM":
+            # SDAR uses block_length=4, denoising_steps=4 (see JetLM/SDAR-8B-Chat-b32)
+            block_size = 32
+            # <|MASK|> token id from SDAR tokenizer (Qwen2-based)
+            mask_id = 151669
         else:
             raise RuntimeError(
                 f"Unknown diffusion LLM: {model_config.hf_config.architectures[0]}"

@@ -22,7 +22,7 @@ python3 -m sglang.launch_server \
 # Range: 0.0 - 1.0
 threshold: 0.95
 
-# Default: 32, for LLaDA2MoeModelLM
+# Default: 32 for LLaDA2, 4 for SDAR
 block_size: 32
 ```
 ## Example Client Code Snippet
@@ -81,3 +81,4 @@ Below the supported models are summarized in a table.
 | Model Family                               | Example Model                          | Description                                                                 |
 | ------------------------------------------ | -------------------------------------- | --------------------------------------------------------------------------- |
 | **LLaDA2.0 (mini, flash)** | `inclusionAI/LLaDA2.0-flash` | LLaDA2.0-flash is a diffusion language model featuring a 100B Mixture-of-Experts (MoE) architecture. |
+| **SDAR** | `JetLM/SDAR-8B-Chat-b32` | SDAR (Synergy of Diffusion and AutoRegression) is a block diffusion model based on Qwen2. Uses block_length=4, denoising_steps=4. |
